@@ -209,7 +209,3 @@ END;
 
 -- Para visualizar tabla
 SELECT * FROM PAGO_MOROSO;
-
-
-
--- HOLA LILY COMO ESTAS =)

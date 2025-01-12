@@ -209,3 +209,88 @@ END;
 
 -- Para visualizar tabla
 SELECT * FROM PAGO_MOROSO;
+
+----------------------------------------------------------------------------------------------------------------------------------------
+================================================================ CASO 2 ================================================================
+----------------------------------------------------------------------------------------------------------------------------------------
+
+DECLARE
+    -- CURSOR EXPLÍCITO para iterar sobre los médicos
+    CURSOR c_medicos IS
+        SELECT m.med_run, m.dv_run, m.pnombre, m.snombre, m.apaterno, m.amaterno, m.uni_id, u.nombre AS unidad
+        FROM MEDICO m
+        JOIN UNIDAD u ON m.uni_id = u.uni_id
+        ORDER BY u.nombre, m.apaterno;
+
+    -- Registro PL/SQL para almacenar datos del médico actual ROWTYPE
+    r_medico c_medicos%ROWTYPE;
+
+    -- Variables adicionales
+    v_total_atenciones NUMBER;
+    TYPE DestinacionesType IS TABLE OF VARCHAR2(100) INDEX BY BINARY_INTEGER;
+    v_destinaciones DestinacionesType;
+    v_correo_institucional VARCHAR2(50);
+    v_year_anterior NUMBER := EXTRACT(YEAR FROM SYSDATE) - 1;
+
+BEGIN
+    -- Asignamos valores al arreglo de destinaciones
+    v_destinaciones(1) := 'Servicio de Atención Primaria de Urgencia (SAPU)';
+    v_destinaciones(2) := 'Centros de Salud Familiar (CESFAM)';
+    v_destinaciones(3) := 'Hospitales del área de la Salud Pública';
+
+    -- Iteramos sobre cada médico mediante el CURSOR
+    OPEN c_medicos;
+    LOOP
+        FETCH c_medicos INTO r_medico;
+        EXIT WHEN c_medicos%NOTFOUND;
+
+        -- Obtenemos el total de atenciones médicas del año anterior
+        SELECT COUNT(*)
+        INTO v_total_atenciones
+        FROM ATENCION
+        WHERE med_run = r_medico.med_run
+          AND EXTRACT(YEAR FROM fecha_atencion) = v_year_anterior;
+
+        -- Generamos el correo institucional
+        v_correo_institucional := SUBSTR(r_medico.unidad, 1, 2) ||
+                                  SUBSTR(r_medico.apaterno, -2, 2) ||
+                                  '@medicocktk.cl';
+
+        -- Insertamos en la tabla MEDICO_SERVICIO_COMUNIDAD
+        INSERT INTO MEDICO_SERVICIO_COMUNIDAD (
+            unidad, run_medico, nombre_medico, correo_institucional,
+            total_aten_medicas, destinacion
+        ) VALUES (
+            r_medico.unidad,
+            SUBSTR(TO_CHAR(r_medico.med_run, 'FM00000000'), 1, 2) || '.' ||  -- Agregamos el primer punto
+            SUBSTR(TO_CHAR(r_medico.med_run, 'FM00000000'), 3, 3) || '.' ||  -- Agregamos el segundo punto
+            SUBSTR(TO_CHAR(r_medico.med_run, 'FM00000000'), 6, 3) || '-' ||  -- Agregamos el guión
+            r_medico.dv_run,  -- Dígito verificador
+            r_medico.pnombre || ' ' || r_medico.snombre || ' ' ||
+            r_medico.apaterno || ' ' || r_medico.amaterno,
+            v_correo_institucional,
+            v_total_atenciones,
+            v_destinaciones(CASE 
+                WHEN r_medico.uni_id BETWEEN 1 AND 10 THEN 1
+                WHEN r_medico.uni_id BETWEEN 11 AND 20 THEN 2
+                ELSE 3
+            END)
+        );
+
+
+
+    END LOOP;
+    CLOSE c_medicos;
+
+    -- Confirmamos con COMMIT
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        DBMS_OUTPUT.PUT_LINE('Ocurrió un error: ' || SQLERRM);
+END;
+/
+    
+-- Verificamos la tabla MEDICO_SERVICIO_COMUNIDAD
+    
+SELECT * FROM medico_servicio_comunidad;
